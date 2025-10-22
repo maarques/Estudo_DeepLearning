@@ -66,4 +66,8 @@ def analisador_sentimentos(produto):
     texto_resposta = resposta.choices[0].message["content"]
     salva(f"./dados/analise-{produto}.txt", texto_resposta)
 
-analisador_sentimentos("Maquiagem mineral")
+lista_produtos = ["Camisetas de algodão orgânico", "Jeans feitos com materiais reciclados",
+"Maquiagem mineral"]
+
+for produto in lista_produtos:
+    analisador_sentimentos(produto)
