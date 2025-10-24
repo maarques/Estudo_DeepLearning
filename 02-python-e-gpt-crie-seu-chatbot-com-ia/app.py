@@ -5,6 +5,7 @@ import os
 from time import sleep
 from helpers import *
 from selecionar_persona import *
+from selecionar_documento import *
 
 load_dotenv()
 
@@ -18,12 +19,12 @@ client = InferenceClient(
 app = Flask(__name__)
 app.secret_key = "meu_nome"
 
-contexto = carrega("02-python-e-gpt-crie-seu-chatbot-com-ia\dados\EcoMart.txt")
-
 def bot(prompt):
     max_tentativas = 1
     repeticao = 0
     personalidade = personas[selecionar_persona(prompt)]
+    contexto = selecionar_contexto(prompt)
+    documento_selecionado = selecionar_documento(contexto)
 
     while True:
         try:
@@ -35,7 +36,7 @@ def bot(prompt):
             Você deve adotar a persona abaixo.
 
             # Contexto
-            {contexto}
+            {documento_selecionado}
 
             #Persona
             {personalidade}
