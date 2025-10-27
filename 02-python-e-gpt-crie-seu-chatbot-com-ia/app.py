@@ -1,79 +1,51 @@
 from flask import Flask, render_template, request, Response
 from huggingface_hub import InferenceClient
 from dotenv import load_dotenv
-import os
-from time import sleep
 from helpers import *
 from selecionar_persona import *
 from selecionar_documento import *
+from assistente_ecomart import *
 
 load_dotenv()
 
 modelo = "meta-llama/Llama-3.3-70B-Instruct"
-
-client = InferenceClient(
-    model=modelo,
-    api_key=os.getenv("HUGGINGFACE_TOKEN_KEY")
-)
+contexto_inicial = selecionar_documento("02-python-e-gpt-crie-seu-chatbot-com-ia\dados\EcoMart.txt")
+assistente_ia = criar_assistente("assistenteEcomart", personas["neutro"], contexto_inicial, modelo)
 
 app = Flask(__name__)
 app.secret_key = "meu_nome"
 
 def bot(prompt):
-    max_tentativas = 1
-    repeticao = 0
-    personalidade = personas[selecionar_persona(prompt)]
+    sentimento = selecionar_persona(prompt)
+    if sentimento not in personas:
+        sentimento = 'neutro'
+    personalidade = personas[sentimento]
     contexto = selecionar_contexto(prompt)
     documento_selecionado = selecionar_documento(contexto)
 
-    while True:
-        try:
-            prompt_sistema = f"""
-            Você é um chatbot de atendimento a clientes de um e-commerce. 
-            Você não deve responder perguntas que não sejam dados do e-commerce informado!
+    messages = [
+        {"role": "system", "content": assistente_ia.instructions},
+        {"role": "user", "content": prompt}
+    ]
 
-            Você deve gerar respostas utilizando o contexto abaixo.
-            Você deve adotar a persona abaixo.
+    try:
+        response = assistente_ia.client.chat.completions.create(
+            model=assistente_ia.model,
+            messages=messages,
+            temperature=1,
+            max_tokens=300
+        )
+        return response.choices[0].message["content"]
 
-            # Contexto
-            {documento_selecionado}
-
-            #Persona
-            {personalidade}
-            """
-
-            response = client.chat.completions.create(
-                messages=[
-                        {
-                                "role": "system",
-                                "content": prompt_sistema
-                        },
-                        {
-                                "role": "user",
-                                "content": prompt
-                        }
-                ],
-                temperature=1,
-                max_tokens=300,
-                top_p=1,
-                frequency_penalty=0,
-                presence_penalty=0,
-                model = modelo)
-            return response
-        except Exception as erro:
-                repeticao += 1
-                if repeticao >= max_tentativas:
-                    return "Erro no GPT: %s" % erro
-                print('Erro de comunicação com OpenAI:', erro)
-                sleep(1)
-             
+    except Exception as erro:
+        print("Erro no modelo:", erro)
+        return f"Erro no GPT: {erro}"
 
 @app.route("/chat", methods=["POST"])
 def chat():
     prompt = request.json["msg"]
     resposta = bot(prompt)
-    texto_resposta = resposta.choices[0].message["content"]
-    return texto_resposta
+    return resposta
 
 @app.route("/")
 def home():
