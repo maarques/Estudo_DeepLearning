@@ -1,54 +1,81 @@
-from flask import Flask, render_template, request, Response
+from flask import Flask, render_template, request, Response, session
 from huggingface_hub import InferenceClient
 from dotenv import load_dotenv
 from helpers import *
 from selecionar_persona import *
 from selecionar_documento import *
-from assistente_ecomart import *
 
 load_dotenv()
 
 modelo = "meta-llama/Llama-3.3-70B-Instruct"
-contexto_inicial = selecionar_documento("02-python-e-gpt-crie-seu-chatbot-com-ia\dados\EcoMart.txt")
-assistente_ia = criar_assistente("assistenteEcomart", personas["neutro"], contexto_inicial, modelo)
+
+client = InferenceClient(
+    model=modelo,
+    api_key=os.getenv("HUGGINGFACE_TOKEN_KEY")
+)
 
 app = Flask(__name__)
 app.secret_key = "meu_nome"
 
-def bot(prompt):
-    sentimento = selecionar_persona(prompt)
-    if sentimento not in personas:
-        sentimento = 'neutro'
-    personalidade = personas[sentimento]
-    contexto = selecionar_contexto(prompt)
-    documento_selecionado = selecionar_documento(contexto)
-
-    messages = [
-        {"role": "system", "content": assistente_ia.instructions},
-        {"role": "user", "content": prompt}
-    ]
-
+@app.route("/chat", methods=["POST"])
+def chatbot():
     try:
-        response = assistente_ia.client.chat.completions.create(
-            model=assistente_ia.model,
-            messages=messages,
-            temperature=1,
-            max_tokens=300
+        # Pega o histórico da sessão ou cria um novo se for a primeira mensagem
+        historico = session.get("historico", [])
+        
+        prompt_usuario = request.json["msg"]
+        
+        # Adiciona a nova mensagem do usuário ao "Thread"
+        historico.append({"role": "user", "content": prompt_usuario})
+        
+        sentimento = selecionar_persona(prompt_usuario)
+        if sentimento not in personas:
+            sentimento = 'neutro'
+        personalidade_texto = personas[sentimento]
+
+        contexto_nome = selecionar_contexto(prompt_usuario)
+        contexto_texto = selecionar_documento(contexto_nome)
+
+        prompt_sistema = f"""
+        Você é um chatbot de atendimento a clientes de um e-commerce (EcoMart). 
+        Você não deve responder perguntas que não sejam dados do e-commerce informado!
+        Você deve gerar respostas utilizando o contexto abaixo.
+        Você deve adotar a persona abaixo.
+
+        # Contexto
+        {contexto_texto}
+
+        # Persona
+        {personalidade_texto}
+        """
+
+        mensagens = [
+            {"role": "system", "content": prompt_sistema},
+            *historico # Desempacota a lista de histórico aqui
+        ]
+
+        response = client.chat.completions.create(
+            model=modelo,
+            messages=mensagens,
+            temperature=0,
+            max_tokens=500
         )
-        return response.choices[0].message["content"]
+        resposta_bot = response.choices[0].message["content"]
+        
+        # Adiciona a resposta do bot ao histórico
+        historico.append({"role": "assistant", "content": resposta_bot})
+        
+        session["historico"] = historico
+        
+        return resposta_bot
 
     except Exception as erro:
-        print("Erro no modelo:", erro)
-        return f"Erro no GPT: {erro}"
-
-@app.route("/chat", methods=["POST"])
-def chat():
-    prompt = request.json["msg"]
-    resposta = bot(prompt)
-    return resposta
+        print("Erro no /chat:", erro)
+        return f"Ocorreu um erro no servidor: {erro}", 500
 
 @app.route("/")
 def home():
+    session["historico"] = []
     return render_template("index.html")
 
 if __name__ == "__main__":

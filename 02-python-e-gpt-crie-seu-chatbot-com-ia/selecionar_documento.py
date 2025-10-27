@@ -1,8 +1,6 @@
-from flask import Flask, render_template, request, Response
 from huggingface_hub import InferenceClient
 from dotenv import load_dotenv
 import os
-from time import sleep
 from helpers import *
 from selecionar_persona import *
 
@@ -15,30 +13,50 @@ client = InferenceClient(
     api_key=os.getenv("HUGGINGFACE_TOKEN_KEY")
 )
 
-politicas_ecomart = carrega("02-python-e-gpt-crie-seu-chatbot-com-ia\dados\políticas_ecomart.txt")
-dados_ecomart = carrega("02-python-e-gpt-crie-seu-chatbot-com-ia\dados\dados_ecomart.txt")
-produtos_ecomart = carrega("02-python-e-gpt-crie-seu-chatbot-com-ia\dados\produtos_ecomart.txt")
+try:
+    politicas_ecomart = carrega("02-python-e-gpt-crie-seu-chatbot-com-ia/dados/políticas_ecomart.txt")
+    dados_ecomart = carrega("02-python-e-gpt-crie-seu-chatbot-com-ia/dados/dados_ecomart.txt")
+    produtos_ecomart = carrega("02-python-e-gpt-crie-seu-chatbot-com-ia/dados/produtos_ecomart.txt")
+    
+    Documentos_Ecomart = {
+        "políticas": dados_ecomart + "\n" + politicas_ecomart,
+        "produtos": dados_ecomart + "\n" + produtos_ecomart,
+        "dados": dados_ecomart
+    }
+    
+    print("Arquivos de contexto carregados com sucesso.")
+except Exception as e:
+    print(f"ERRO: Não foi possível carregar os arquivos de dados: {e}")
+    Documentos_Ecomart = {"políticas": "", "produtos": "", "dados": ""}
 
-def selecionar_documento(resposta_huggingface):
-    if "políticas" in resposta_huggingface:
-        return dados_ecomart + "\n" + politicas_ecomart
-    elif "produtos" in resposta_huggingface:
-        return dados_ecomart + "\n" + produtos_ecomart
-    else:
-        return dados_ecomart
+def selecionar_documento(nome_contexto):
+
+    nome_normalizado = nome_contexto.lower().strip().replace(".", "")
+    
+    if nome_normalizado not in Documentos_Ecomart:
+        nome_normalizado = "dados"
+        
+    return Documentos_Ecomart[nome_normalizado]
+
 
 def selecionar_contexto(msg_usuario):
+
     prompt_sistema = f"""
     A empresa EcoMart possui três documentos principais que detalham diferentes aspectos do negócio:
 
-    #Documento 1 "\n {dados_ecomart} "\n"
-    #Documento 2 "\n" {politicas_ecomart} "\n"
-    #Documento 3 "\n" {produtos_ecomart} "\n"
+    #Documento 1 (retorne "dados")
+    {dados_ecomart}
 
-    Avalie o prompt do usuário e retorne o documento mais indicado para ser usado no contexto da resposta. 
-    Retorne dados se for o Documento 1, políticas se for o Documento 2 e produtos se for o Documento 3. 
+    #Documento 2 (retorne "políticas")
+    {politicas_ecomart}
 
+    #Documento 3 (retorne "produtos")
+    {produtos_ecomart}
+
+    Avalie o prompt do usuário e retorne APENAS a palavra-chave do documento mais indicado para ser usado no contexto da resposta.
+    Retorne "dados" se for o Documento 1, "políticas" se for o Documento 2 e "produtos" se for o Documento 3.
     """
+    
     resposta = client.chat.completions.create(
         model=modelo,
         messages=[
@@ -51,7 +69,7 @@ def selecionar_contexto(msg_usuario):
                 "content": msg_usuario
             }
         ],
-        temperature=1
+        temperature=0
     )
-    contexto = resposta.choices[0].message["content"].lower()
+    contexto = resposta.choices[0].message["content"].lower().strip().replace(".", "")
     return contexto
